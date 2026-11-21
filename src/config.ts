@@ -1,3 +1,4 @@
+import path from 'node:path'
 import dotenv from 'dotenv'
 
 /*
@@ -49,5 +50,9 @@ export const config = {
     /** Let TypeORM alter the schema to match the entities. Development only — never with real data. */
     synchronize: bool('DB_SYNCHRONIZE', false),
     logging: bool('DB_LOGGING', false),
+  },
+  thumbnails: {
+    /** Where generated link thumbnails are stored. Created at startup if missing. */
+    dir: path.resolve(str('THUMBNAIL_DIR', './data/thumbnails')),
   },
 }

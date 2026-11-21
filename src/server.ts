@@ -2,13 +2,18 @@ import 'reflect-metadata'
 import { config } from './config'
 import { dataSource } from './data-source'
 import { createApp } from './app'
+import { ThumbnailService } from './services/thumbnail-service'
 
 async function main() {
   const { db, server } = config
   console.info(`[api] connecting to ${db.type} at ${db.host}:${db.port}/${db.database}`)
   await dataSource.initialize()
 
-  const httpServer = createApp(dataSource).listen(server.port, server.host, () => {
+  const thumbnails = new ThumbnailService(config.thumbnails.dir)
+  await thumbnails.init()
+  console.info(`[api] thumbnails stored in ${config.thumbnails.dir}`)
+
+  const httpServer = createApp(dataSource, thumbnails).listen(server.port, server.host, () => {
     console.info(`[api] listening on http://${server.host}:${server.port}`)
   })
 
