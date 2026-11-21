@@ -7,8 +7,9 @@ import { categoriesRouter } from './routes/categories'
 import { linksRouter } from './routes/links'
 import { CategoryService } from './services/category-service'
 import { LinkService } from './services/link-service'
+import type { ThumbnailService } from './services/thumbnail-service'
 
-export function createApp(dataSource: DataSource): Express {
+export function createApp(dataSource: DataSource, thumbnails: ThumbnailService): Express {
   const app = express()
   const { corsOrigins } = config.server
 
@@ -26,7 +27,7 @@ export function createApp(dataSource: DataSource): Express {
   })
 
   app.use('/api/categories', categoriesRouter(new CategoryService(dataSource)))
-  app.use('/api/links', linksRouter(new LinkService(dataSource)))
+  app.use('/api/links', linksRouter(new LinkService(dataSource, thumbnails)))
 
   app.use(notFound)
   app.use(errorHandler)

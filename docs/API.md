@@ -102,6 +102,7 @@ A saved web link.
 | POST | `/api/links` | 201 | 400, 409, 500, 503 |
 | PATCH | `/api/links/:id` | 200 | 400, 404, 409, 500, 503 |
 | DELETE | `/api/links/:id` | 204 | 404, 500, 503 |
+| GET | `/api/links/:id/thumbnail` | 200 (image/webp) | 404, 500, 503 |
 
 ---
 
@@ -404,6 +405,8 @@ curl -s $BASE/api/links/9b2e7a10-4c3d-4e5f-8a6b-7c8d9e0f1a02
 
 The server sets `id`, `createdAt` and `updatedAt`.
 
+After the link is saved, the server starts generating its thumbnail in the background (see [Get a link's thumbnail](#get-a-links-thumbnail-get-apilinksidthumbnail)). The response doesn't wait for the thumbnail, and a failed thumbnail doesn't fail the create.
+
 | Body field | Required | Notes |
 | --- | --- | --- |
 | `title` | yes | Trimmed. Must not be empty and must be at most 200 characters. |
@@ -562,9 +565,38 @@ DELETE http://127.0.0.1:3000/api/links/9b2e7a10-4c3d-4e5f-8a6b-7c8d9e0f1a03
 curl -s -i -X DELETE $BASE/api/links/9b2e7a10-4c3d-4e5f-8a6b-7c8d9e0f1a03
 ```
 
-**204**: no body.
+**204**: no body. The link's thumbnail file is deleted too.
 
 **404**: no link has that id.
+
+### Get a link's thumbnail: `GET /api/links/:id/thumbnail`
+
+Returns the link's thumbnail as a 640×360 WebP image. The image is read from the directory set by `THUMBNAIL_DIR`, which is outside the project.
+
+The thumbnail is generated when the link is created. The server uses the page's Open Graph image (`og:image`) if it has one, and otherwise a screenshot of the page from the Microlink API. Generation usually takes a few seconds, so expect a `404` right after a create. If generation fails, the link has no thumbnail and this endpoint keeps returning `404`.
+
+```
+GET http://127.0.0.1:3000/api/links/9b2e7a10-4c3d-4e5f-8a6b-7c8d9e0f1a02/thumbnail
+```
+
+```sh
+curl -s -o thumbnail.webp -w '%{http_code} %{content_type}\n' \
+  $BASE/api/links/9b2e7a10-4c3d-4e5f-8a6b-7c8d9e0f1a02/thumbnail
+```
+
+In the UI:
+
+```html
+<img src="http://127.0.0.1:3000/api/links/9b2e7a10-4c3d-4e5f-8a6b-7c8d9e0f1a02/thumbnail" alt="" width="640" height="360">
+```
+
+**200**: the image, with `Content-Type: image/webp`.
+
+**404**: no link has that id (`"That item no longer exists. It may have been deleted."`), or the link has no thumbnail yet:
+
+```json
+{ "error": { "code": "NOT_FOUND", "message": "This link has no thumbnail yet." } }
+```
 
 ---
 

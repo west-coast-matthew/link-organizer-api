@@ -5,11 +5,15 @@ import { hashUrl, LinkEntity } from '../entities/LinkEntity'
 import { ApiError } from '../errors/api-error'
 import { isHttpUrl, isUuid, requireObject } from '../lib/validation'
 import { LIMITS, type FieldError, type Rating } from '../types'
+import type { ThumbnailService } from './thumbnail-service'
 
 type LinkFields = Partial<Pick<LinkEntity, 'title' | 'url' | 'description' | 'categoryId' | 'rating'>>
 
 export class LinkService {
-  constructor(private readonly db: DataSource) {}
+  constructor(
+    private readonly db: DataSource,
+    private readonly thumbnails: ThumbnailService,
+  ) {}
 
   /** Every saved link, newest first. */
   list(): Promise<LinkEntity[]> {
@@ -20,8 +24,12 @@ export class LinkService {
     return this.find(this.db.manager, id)
   }
 
-  create(body: unknown): Promise<LinkEntity> {
-    return this.db.transaction(async (em) => {
+  /**
+   * Saves the link, then starts generating its thumbnail in the background. The
+   * response doesn't wait for the thumbnail, and a failed thumbnail doesn't fail the create.
+   */
+  async create(body: unknown): Promise<LinkEntity> {
+    const link = await this.db.transaction(async (em) => {
       const clean = await this.validate(em, requireObject(body), null)
       const entity = em.create(LinkEntity, {
         id: randomUUID(),
@@ -33,6 +41,16 @@ export class LinkService {
       })
       return em.save(entity)
     })
+    this.thumbnails.generateInBackground(link.id, link.url)
+    return link
+  }
+
+  /** Path of the link's stored thumbnail. NOT_FOUND if the link doesn't exist or has no thumbnail yet. */
+  async thumbnailPath(id: string): Promise<string> {
+    await this.find(this.db.manager, id)
+    const file = await this.thumbnails.find(id)
+    if (!file) throw new ApiError('NOT_FOUND', undefined, 'This link has no thumbnail yet.')
+    return file
   }
 
   update(id: string, body: unknown): Promise<LinkEntity> {
@@ -44,11 +62,13 @@ export class LinkService {
     })
   }
 
-  delete(id: string): Promise<void> {
-    return this.db.transaction(async (em) => {
+  async delete(id: string): Promise<void> {
+    await this.db.transaction(async (em) => {
       await this.find(em, id)
       await em.delete(LinkEntity, { id })
     })
+    // The link is gone either way; a leftover file only wastes space.
+    await this.thumbnails.remove(id).catch((error: unknown) => console.warn(`[thumbnails] couldn't remove ${id}:`, error))
   }
 
   /* ----- Internals ----- */
