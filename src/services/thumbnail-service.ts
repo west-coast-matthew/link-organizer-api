@@ -7,6 +7,7 @@ const FETCH_TIMEOUT_MS = 10_000
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const WIDTH = 640
 const HEIGHT = 360
+const BACKGROUND_CONCURRENCY = 3
 
 /** Fetches a URL and returns its body, refusing non-2xx responses, non-images and oversized bodies. */
 async function fetchImage(url: string): Promise<Buffer> {
@@ -67,14 +68,35 @@ export class ThumbnailService {
     return file
   }
 
-  /** Fire-and-forget generation: logs the outcome and never throws. */
+  /**
+   * Fire-and-forget generation: queues the job, logs the outcome and never throws.
+   * At most BACKGROUND_CONCURRENCY jobs run at once, so a bulk import doesn't open
+   * hundreds of connections (or hit the screenshot API's rate limit) at the same time.
+   */
   generateInBackground(linkId: string, targetUrl: string): void {
-    const started = Date.now()
-    this.generate(linkId, targetUrl).then(
-      () => console.info(`[thumbnails] ${linkId} ready (${Date.now() - started} ms) ${targetUrl}`),
-      (error: unknown) =>
-        console.warn(`[thumbnails] ${linkId} failed for ${targetUrl}: ${error instanceof Error ? error.message : error}`),
-    )
+    this.queue.push({ linkId, targetUrl })
+    this.drain()
+  }
+
+  private readonly queue: { linkId: string; targetUrl: string }[] = []
+  private running = 0
+
+  private drain(): void {
+    while (this.running < BACKGROUND_CONCURRENCY && this.queue.length) {
+      const { linkId, targetUrl } = this.queue.shift()!
+      const started = Date.now()
+      this.running++
+      this.generate(linkId, targetUrl)
+        .then(
+          () => console.info(`[thumbnails] ${linkId} ready (${Date.now() - started} ms) ${targetUrl}`),
+          (error: unknown) =>
+            console.warn(`[thumbnails] ${linkId} failed for ${targetUrl}: ${error instanceof Error ? error.message : error}`),
+        )
+        .finally(() => {
+          this.running--
+          this.drain()
+        })
+    }
   }
 
   async remove(linkId: string): Promise<void> {

@@ -22,6 +22,15 @@ export function linksRouter(links: LinkService): Router {
     res.sendFile(file)
   })
 
+  /** Bulk import (spec 002). 201 if anything was created, otherwise 200. */
+  router.post('/import', async (req, res) => {
+    const data = await links.import(req.body)
+    res.status(data.created.length ? 201 : 200).json({
+      data,
+      meta: { total: data.created.length + data.skipped.length, created: data.created.length, skipped: data.skipped.length },
+    })
+  })
+
   router.post('/', async (req, res) => {
     res.status(201).json({ data: await links.create(req.body) })
   })

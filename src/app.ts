@@ -20,6 +20,8 @@ export function createApp(dataSource: DataSource, thumbnails: ThumbnailService):
     res.set('Cache-Control', 'no-store')
     next()
   })
+  // Bulk import bodies carry up to ~1 MB of pasted text; everything else stays small.
+  app.use('/api/links/import', express.json({ limit: '2mb' }))
   app.use(express.json({ limit: '100kb' }))
 
   app.get('/health', (_req, res) => {
