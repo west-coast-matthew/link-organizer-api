@@ -102,6 +102,7 @@ A saved web link.
 | POST | `/api/links` | 201 | 400, 409, 500, 503 |
 | PATCH | `/api/links/:id` | 200 | 400, 404, 409, 500, 503 |
 | DELETE | `/api/links/:id` | 204 | 404, 500, 503 |
+| POST | `/api/links/import` | 201 (some created) / 200 (none) | 400, 500, 503 |
 | GET | `/api/links/:id/thumbnail` | 200 (image/webp) | 404, 500, 503 |
 
 ---
@@ -568,6 +569,123 @@ curl -s -i -X DELETE $BASE/api/links/9b2e7a10-4c3d-4e5f-8a6b-7c8d9e0f1a03
 **204**: no body. The link's thumbnail file is deleted too.
 
 **404**: no link has that id.
+
+### Import links in bulk: `POST /api/links/import`
+
+Creates many links at once from pasted text (for example, from a text area). Every imported link is filed in the same category.
+
+| Body field | Required | Notes |
+| --- | --- | --- |
+| `text` | yes | The links to import, in the format below. At most 1,000 entries and about 1 MB of text. |
+| `categoryId` | yes | The category or subcategory for every imported link, or `null` to import them as unsorted. |
+
+**Text format.** Entries are separated by one or more blank lines. In each entry, the first line is the title, the second line is the URL, and any further lines are the description (kept as separate lines). Leading and trailing spaces on each line are ignored, and both `\n` and `\r\n` line endings work.
+
+```
+link 1
+http://www.somewhere.com
+
+some other link
+http://www.foo.com
+this is a really great site....
+```
+
+**How entries are handled.** Each entry is created on its own, with the same rules as [Create a link](#create-a-link-post-apilinks). An entry that breaks a rule is skipped and listed in `skipped`, and the others are still created. Examples of skipped entries:
+
+- the URL is missing or invalid
+- the title or description is too long
+- the URL is already saved, or appears earlier in the same text
+
+Because duplicates are skipped, it's safe to send the same import again after a partial failure. Imported links aren't rated, and each one gets a thumbnail generated in the background, as with a single create.
+
+```
+POST http://127.0.0.1:3000/api/links/import
+```
+
+```sh
+curl -s -X POST $BASE/api/links/import \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "categoryId": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e02",
+    "text": "link 1\nhttp://www.somewhere.com\n\nsome other link\nhttp://www.foo.com\nthis is a really great site....\n\nbad url\nnot-a-url"
+  }'
+```
+
+From a file, letting `jq` handle the JSON escaping:
+
+```sh
+jq -n --rawfile text links.txt --arg cat 6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e02 \
+  '{ text: $text, categoryId: $cat }' |
+  curl -s -X POST $BASE/api/links/import -H 'Content-Type: application/json' -d @-
+```
+
+**201**: at least one link was created. **200**: the text was read but no link was created, so every entry is in `skipped`.
+
+```json
+{
+  "data": {
+    "created": [
+      {
+        "id": "a73fc6db-7aa8-4bec-bb72-c5f575dbacbc",
+        "title": "link 1",
+        "url": "http://www.somewhere.com",
+        "description": null,
+        "categoryId": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e02",
+        "rating": null,
+        "createdAt": "2026-11-21T19:20:00.000Z",
+        "updatedAt": "2026-11-21T19:20:00.000Z"
+      },
+      {
+        "id": "873872c9-275c-42aa-b8d1-5895a1a02151",
+        "title": "some other link",
+        "url": "http://www.foo.com",
+        "description": "this is a really great site....",
+        "categoryId": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e02",
+        "rating": null,
+        "createdAt": "2026-11-21T19:20:00.010Z",
+        "updatedAt": "2026-11-21T19:20:00.010Z"
+      }
+    ],
+    "skipped": [
+      {
+        "entry": 3,
+        "line": 8,
+        "title": "bad url",
+        "url": "not-a-url",
+        "code": "VALIDATION_FAILED",
+        "message": "Enter a web address that starts with http:// or https://."
+      }
+    ]
+  },
+  "meta": { "total": 3, "created": 2, "skipped": 1 }
+}
+```
+
+| `skipped` field | Meaning |
+| --- | --- |
+| `entry` | The entry's position in the text, counting from 1. |
+| `line` | The line the entry starts on, counting from 1. |
+| `title`, `url` | The entry's first two lines, as given. |
+| `code` | `VALIDATION_FAILED` or `DUPLICATE_URL`. |
+| `message` | Why the entry was skipped, ready to show to the user. |
+
+**Errors.** These reject the whole request, and nothing is created:
+
+| Status | Code | When |
+| --- | --- | --- |
+| 400 | `VALIDATION_FAILED` | `text` is missing, blank or too long; there are more than 1,000 entries; `categoryId` is missing; or the category doesn't exist. |
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "Some fields need attention.",
+    "details": [{ "field": "categoryId", "message": "That category no longer exists. Pick another." }]
+  }
+}
+```
+
+A `500` or `503` part-way through stops the import. The links created before the failure are kept, so send the same request again: links already saved are skipped as duplicates.
 
 ### Get a link's thumbnail: `GET /api/links/:id/thumbnail`
 

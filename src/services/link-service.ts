@@ -4,7 +4,8 @@ import { CategoryEntity } from '../entities/CategoryEntity'
 import { hashUrl, LinkEntity } from '../entities/LinkEntity'
 import { ApiError } from '../errors/api-error'
 import { isHttpUrl, isUuid, requireObject } from '../lib/validation'
-import { LIMITS, type FieldError, type Rating } from '../types'
+import { parseBulkLinks } from '../lib/bulk-import'
+import { LIMITS, type BulkImportResult, type FieldError, type Rating } from '../types'
 import type { ThumbnailService } from './thumbnail-service'
 
 type LinkFields = Partial<Pick<LinkEntity, 'title' | 'url' | 'description' | 'categoryId' | 'rating'>>
@@ -43,6 +44,63 @@ export class LinkService {
     })
     this.thumbnails.generateInBackground(link.id, link.url)
     return link
+  }
+
+  /**
+   * Bulk import (spec 002). Parses `text` into entries and files every one in
+   * `categoryId`. Each entry is created on its own, with the same rules as a single
+   * create: invalid entries and URLs that are already saved (or repeated earlier in
+   * the same text) are skipped and reported, and the rest are still created. That
+   * makes a retry after a partial failure safe.
+   */
+  async import(body: unknown): Promise<BulkImportResult> {
+    const input = requireObject(body)
+    const details: FieldError[] = []
+    const { maxEntries, maxTextLength } = LIMITS.bulkImport
+
+    if (typeof input.text !== 'string' || !input.text.trim())
+      details.push({ field: 'text', message: 'Paste at least one link to import.' })
+    else if (input.text.length > maxTextLength)
+      details.push({ field: 'text', message: `That's too much text for one import. Split it into smaller batches.` })
+
+    const missingCategory = { field: 'categoryId', message: 'That category no longer exists. Pick another.' }
+    let categoryId: string | null = null
+    if (input.categoryId === undefined)
+      details.push({ field: 'categoryId', message: 'Pick a category for the imported links, or send null for unsorted.' })
+    else if (input.categoryId !== null) {
+      if (!isUuid(input.categoryId)) details.push(missingCategory)
+      else {
+        categoryId = input.categoryId.toLowerCase()
+        if (!(await this.db.manager.existsBy(CategoryEntity, { id: categoryId }))) details.push(missingCategory)
+      }
+    }
+    if (details.length) throw new ApiError('VALIDATION_FAILED', details)
+
+    const entries = parseBulkLinks(input.text as string)
+    if (entries.length > maxEntries)
+      throw new ApiError('VALIDATION_FAILED', [
+        { field: 'text', message: `Import at most ${maxEntries} links at a time; this has ${entries.length}.` },
+      ])
+
+    const result: BulkImportResult = { created: [], skipped: [] }
+    for (const entry of entries) {
+      try {
+        const link = await this.create({ title: entry.title, url: entry.url, description: entry.description, categoryId })
+        result.created.push(link.toJSON())
+      } catch (error) {
+        // Anything other than a rule violation (e.g. the database going away) stops the import.
+        if (!(error instanceof ApiError) || error.status >= 500) throw error
+        result.skipped.push({
+          entry: entry.entry,
+          line: entry.line,
+          title: entry.title,
+          url: entry.url,
+          code: error.code,
+          message: error.details?.map((d) => d.message).join(' ') || error.message,
+        })
+      }
+    }
+    return result
   }
 
   /** Path of the link's stored thumbnail. NOT_FOUND if the link doesn't exist or has no thumbnail yet. */

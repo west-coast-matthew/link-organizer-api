@@ -20,6 +20,7 @@ UI can swap its mock service for real `fetch` calls without changing return type
 | POST | `/api/links` | 201 `{ data: LinkItem }` |
 | PATCH | `/api/links/:id` | 200 `{ data: LinkItem }` |
 | DELETE | `/api/links/:id` | 204 |
+| POST | `/api/links/import` | 201/200 `{ data: { created, skipped }, meta }` — bulk import from pasted text into one category |
 | GET | `/api/links/:id/thumbnail` | 200 `image/webp` — generated in the background when the link is created |
 | GET | `/health` | 200 / 503 |
 
