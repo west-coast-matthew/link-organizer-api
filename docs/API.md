@@ -29,6 +29,7 @@ LINK=9b2e7a10-4c3d-4e5f-8a6b-7c8d9e0f1a02      # a link id
 | `PATCH` | Partial update. Send only the fields that change. A field that is left out stays as it is; a field sent as `null` is cleared. |
 | Strings | `title`, `url`, `description` and `name` are trimmed. An empty `description` is stored as `null`. |
 | Unknown fields | Ignored. |
+| Caching | API responses use `Cache-Control: no-store` and do not support ETag revalidation. |
 
 ---
 

@@ -13,7 +13,12 @@ export function createApp(dataSource: DataSource): Express {
   const { corsOrigins } = config.server
 
   app.disable('x-powered-by')
+  app.disable('etag')
   app.use(cors({ origin: corsOrigins.includes('*') ? true : corsOrigins }))
+  app.use('/api', (_req, res, next) => {
+    res.set('Cache-Control', 'no-store')
+    next()
+  })
   app.use(express.json({ limit: '100kb' }))
 
   app.get('/health', (_req, res) => {
