@@ -55,6 +55,10 @@ npm install
 bin/startup.sh             # build if needed, apply migrations, serve
 bin/startup.sh --build     # force a rebuild first
 
+# under PM2 (reads /etc/app-configs/link-mgmnt/.env, or ENV_FILE)
+npm run build
+pm2 start ecosystem.config.js
+
 # development (watch mode, reads ./.env)
 cp .env.example .env
 npm run dev
