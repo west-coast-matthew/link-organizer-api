@@ -122,6 +122,8 @@ A saved web link. A link can act as a *parent* link (a site's home page, say), w
 | DELETE | `/api/links/:id` | 204 | 404, 500, 503 |
 | POST | `/api/links/import` | 201 (some created) / 200 (none) | 400, 500, 503 |
 | GET | `/api/links/:id/thumbnail` | 200 (image/webp) | 404, 500, 503 |
+| GET | `/api/export` | 200 (backup file) | 500, 503 |
+| POST | `/api/import` | 201 (some created) / 200 (none) | 400, 500, 503 |
 
 ---
 
@@ -741,6 +743,126 @@ In the UI:
 ```json
 { "error": { "code": "NOT_FOUND", "message": "This link has no thumbnail yet." } }
 ```
+
+---
+
+## Export and import
+
+Back up every category and link to one JSON file, and restore it later or on another install
+(spec 004). Thumbnails aren't included; they're generated again after an import.
+
+### File format
+
+The file is the API's own `Category` and `Link` objects in an envelope. Notes are HTML, carried as
+ordinary JSON strings.
+
+```json
+{
+  "format": "link-organizer-export",
+  "version": 1,
+  "exportedAt": "2026-11-25T18:00:00.000Z",
+  "counts": { "categories": 2, "links": 1 },
+  "categories": [
+    { "id": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e01", "name": "Food", "parentId": null, "createdAt": "2026-11-01T10:00:00.000Z", "updatedAt": "2026-11-01T10:00:00.000Z" },
+    { "id": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e02", "name": "Italian", "parentId": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e01", "createdAt": "2026-11-01T10:01:00.000Z", "updatedAt": "2026-11-01T10:01:00.000Z" }
+  ],
+  "links": [
+    {
+      "id": "9b2e7a10-4c3d-4e5f-8a6b-7c8d9e0f1a02",
+      "title": "Wonderfull",
+      "url": "https://www.wonderfull.co",
+      "description": null,
+      "notes": "<p>See <a href=\"https://www.wonderfull.co/careers\" target=\"_blank\" rel=\"noopener noreferrer\">Careers</a></p>",
+      "categoryId": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e02",
+      "rating": 4,
+      "createdAt": "2026-11-02T09:00:00.000Z",
+      "updatedAt": "2026-11-02T09:00:00.000Z"
+    }
+  ]
+}
+```
+
+- `format` and `version` identify the file; import refuses anything else.
+- Categories are listed parents first; links oldest first.
+- `rating` is 1–5 or `null` (not rated), as everywhere in the API.
+
+### Export everything: `GET /api/export`
+
+Returns the export file. The body is the file itself, not wrapped in `{ data }`, and the response
+has `Content-Disposition: attachment; filename=link-organizer-backup-YYYY-MM-DD.json` (UTC date).
+
+```sh
+curl -s -OJ $BASE/api/export          # saves link-organizer-backup-2026-11-25.json
+```
+
+**200**: the file, as above.
+
+### Import a file: `POST /api/import`
+
+The body is an export file. The limit is 50 MB, at most 5,000 categories and 20,000 links.
+
+```sh
+curl -s -X POST $BASE/api/import -H 'Content-Type: application/json' \
+  --data-binary @link-organizer-backup-2026-11-25.json
+```
+
+Import **merges and never overwrites**: nothing already in the database is changed or deleted.
+Into an empty database it's a full restore, with the same ids, hierarchy, notes, ratings and timestamps.
+
+Categories, parents first:
+
+- A category whose `id` already exists is used as it is (`existing`); it isn't renamed or moved.
+- Otherwise, one with the same name (case-insensitive) under the same parent is reused (`merged`):
+  the file's subcategories and links go into it.
+- Otherwise it's created with the file's `id`, `name` and timestamps.
+- A `parentId` that's in neither the file nor the database, or that forms a cycle, makes the category top-level.
+- An entry with an invalid id or name is skipped; its subcategories become top-level and its links unsorted.
+
+Links, in file order:
+
+- A URL that's already saved, or repeated earlier in the file, is skipped with `DUPLICATE_URL`.
+- The same rules as [creating a link](#create-a-link-post-apilinks) apply; notes are sanitized. A link
+  that breaks one is skipped with `VALIDATION_FAILED`.
+- The link keeps its `id` unless that id is already taken, in which case it gets a new one.
+- `categoryId` follows the categories above; an unknown category makes the link unsorted.
+- `createdAt` and `updatedAt` are kept when they're valid ISO timestamps.
+- A thumbnail is generated in the background, unless one for that id is already on disk.
+
+Each item is saved on its own, so importing the same file twice creates nothing the second time,
+and a retry after a `500` or `503` part-way through is safe.
+
+**201** (something was created) or **200** (nothing was):
+
+```json
+{
+  "data": {
+    "categories": { "created": 1, "existing": 0, "merged": 1, "skipped": [] },
+    "links": {
+      "created": 0,
+      "skipped": [
+        { "index": 1, "title": "Wonderfull", "url": "https://www.wonderfull.co", "code": "DUPLICATE_URL", "message": "Already saved as \"Wonderfull\"." }
+      ]
+    }
+  },
+  "meta": { "categories": 2, "links": 1 }
+}
+```
+
+Skipped categories are `{ index, name, code, message }`. `index` is the 1-based position in the file's
+`categories` or `links` array; `meta` counts the entries in the file.
+
+**400**: the body isn't an export file. Nothing is written.
+
+```json
+{ "error": { "code": "VALIDATION_FAILED", "message": "Some fields need attention.", "details": [{ "field": "format", "message": "This isn't a Link Organizer export file." }] } }
+```
+
+| `field` | When |
+| --- | --- |
+| `format` | `format` isn't `"link-organizer-export"` (or the body isn't an object) |
+| `version` | `version` isn't `1` |
+| `categories`, `links` | not an array, or more than 5,000 categories / 20,000 links |
+| `body` | malformed JSON, or more than 50 MB |
 
 ---
 

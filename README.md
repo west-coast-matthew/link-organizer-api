@@ -22,6 +22,8 @@ UI can swap its mock service for real `fetch` calls without changing return type
 | DELETE | `/api/links/:id` | 204 |
 | POST | `/api/links/import` | 201/200 `{ data: { created, skipped }, meta }` — bulk import from pasted text into one category |
 | GET | `/api/links/:id/thumbnail` | 200 `image/webp` — generated in the background when the link is created |
+| GET | `/api/export` | 200 — every category and link as a JSON backup file (download) |
+| POST | `/api/import` | 201/200 `{ data: { categories, links }, meta }` — merge a backup file; never overwrites |
 | GET | `/health` | 200 / 503 |
 
 Errors use the `{ error: { code, message, details? } }` envelope from `mock-data/errors.json`.
@@ -87,4 +89,7 @@ New migrations must also be added to the `migrations` array in `src/data-source.
 - Category names are unique among siblings, case-insensitively; the service checks this.
 - Thumbnails are stored as `<linkId>.webp` in `THUMBNAIL_DIR`. The source is the page's `og:image`, or
   a Microlink screenshot when there isn't one (this sends the link's URL to microlink.io).
+- Backups: `GET /api/export` downloads every category and link (with notes) as one JSON file, and
+  `POST /api/import` merges such a file back in. Existing data is never changed, so importing into an
+  empty database is a full restore. See [docs/API.md](docs/API.md#export-and-import) and spec 004.
 - Timestamps are stored as UTC `DATETIME(3)` and returned as ISO 8601 strings.

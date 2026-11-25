@@ -3,10 +3,10 @@ import type { DataSource, EntityManager } from 'typeorm'
 import { CategoryEntity } from '../entities/CategoryEntity'
 import { hashUrl, LinkEntity } from '../entities/LinkEntity'
 import { ApiError } from '../errors/api-error'
-import { isHttpUrl, isUuid, requireObject } from '../lib/validation'
+import { isUuid, requireObject } from '../lib/validation'
 import { parseBulkLinks } from '../lib/bulk-import'
-import { sanitizeNotes } from '../lib/notes'
-import { LIMITS, type BulkImportResult, type FieldError, type Rating } from '../types'
+import { checkLinkFields } from '../lib/link-fields'
+import { LIMITS, type BulkImportResult, type FieldError } from '../types'
 import type { ThumbnailService } from './thumbnail-service'
 
 type LinkFields = Partial<Pick<LinkEntity, 'title' | 'url' | 'description' | 'notes' | 'categoryId' | 'rating'>>
@@ -141,47 +141,8 @@ export class LinkService {
 
   /** Applies the rules in mock-data/links/{create,update}.json. Returns only the fields that were sent, cleaned. */
   private async validate(em: EntityManager, input: Record<string, unknown>, current: LinkEntity | null): Promise<LinkFields> {
-    const { titleMaxLength, urlMaxLength, descriptionMaxLength, notesMaxLength, ratingMin, ratingMax } = LIMITS.link
-    const details: FieldError[] = []
-    const clean: LinkFields = {}
-    const isCreate = current === null
-
-    if (isCreate || input.title !== undefined) {
-      const title = typeof input.title === 'string' ? input.title.trim() : ''
-      if (!title) details.push({ field: 'title', message: 'Add a title so you can find this link later.' })
-      else if (title.length > titleMaxLength)
-        details.push({ field: 'title', message: `Keep the title under ${titleMaxLength} characters.` })
-      clean.title = title
-    }
-
-    if (isCreate || input.url !== undefined) {
-      const url = typeof input.url === 'string' ? input.url.trim() : ''
-      if (!isHttpUrl(url)) details.push({ field: 'url', message: 'Enter a web address that starts with http:// or https://.' })
-      else if (url.length > urlMaxLength) details.push({ field: 'url', message: 'That web address is too long.' })
-      clean.url = url
-    }
-
-    if (input.description !== undefined) {
-      if (input.description !== null && typeof input.description !== 'string') {
-        details.push({ field: 'description', message: 'The description must be text.' })
-      } else {
-        const description = input.description?.trim() || null
-        if (description && description.length > descriptionMaxLength)
-          details.push({ field: 'description', message: `Keep the description under ${descriptionMaxLength} characters.` })
-        clean.description = description
-      }
-    }
-
-    if (input.notes !== undefined) {
-      if (input.notes !== null && typeof input.notes !== 'string') {
-        details.push({ field: 'notes', message: 'The notes must be text.' })
-      } else {
-        const notes = input.notes === null ? null : sanitizeNotes(input.notes)
-        if (notes && notes.length > notesMaxLength)
-          details.push({ field: 'notes', message: `Keep the notes under ${notesMaxLength} characters.` })
-        clean.notes = notes
-      }
-    }
+    const { clean: fields, details } = checkLinkFields(input, current === null)
+    const clean: LinkFields = { ...fields }
 
     if (input.categoryId !== undefined) {
       const missing = { field: 'categoryId', message: 'That category no longer exists. Pick another.' }
@@ -192,14 +153,6 @@ export class LinkService {
         if (!(await em.existsBy(CategoryEntity, { id: categoryId }))) details.push(missing)
         clean.categoryId = categoryId
       }
-    }
-
-    if (input.rating !== undefined) {
-      const rating = input.rating
-      if (rating === null) clean.rating = null
-      else if (typeof rating !== 'number' || !Number.isInteger(rating) || rating < ratingMin || rating > ratingMax)
-        details.push({ field: 'rating', message: `Rating must be a whole number from ${ratingMin} to ${ratingMax}, or null for not rated.` })
-      else clean.rating = rating as Rating
     }
 
     if (details.length) throw new ApiError('VALIDATION_FAILED', details)
