@@ -90,6 +90,49 @@ export interface BulkImportResult {
   skipped: BulkImportSkipped[]
 }
 
+/* ---------- Export and import (spec 004) ---------- */
+
+export const EXPORT_FORMAT = 'link-organizer-export'
+export const EXPORT_VERSION = 1
+
+/** A backup file: every category (parents first) and every link (oldest first). */
+export interface ExportDocument {
+  format: typeof EXPORT_FORMAT
+  version: typeof EXPORT_VERSION
+  /** ISO timestamp of when the file was made. */
+  exportedAt: string
+  counts: { categories: number; links: number }
+  categories: Category[]
+  links: LinkItem[]
+}
+
+export interface ImportSkippedCategory {
+  /** 1-based position in the file's `categories` array. */
+  index: number
+  name: string
+  code: ErrorCode
+  message: string
+}
+export interface ImportSkippedLink {
+  /** 1-based position in the file's `links` array. */
+  index: number
+  title: string
+  url: string
+  code: ErrorCode
+  message: string
+}
+export interface ImportResult {
+  categories: {
+    created: number
+    /** Same id already in the database; used as is. */
+    existing: number
+    /** Same name already under the same parent; merged into that category. */
+    merged: number
+    skipped: ImportSkippedCategory[]
+  }
+  links: { created: number; skipped: ImportSkippedLink[] }
+}
+
 export type ErrorCode =
   | 'VALIDATION_FAILED'
   | 'NOT_FOUND'
@@ -112,4 +155,5 @@ export const LIMITS = {
   category: { nameMaxLength: 80 },
   link: { titleMaxLength: 200, urlMaxLength: 2048, descriptionMaxLength: 2000, notesMaxLength: 20_000, ratingMin: 1, ratingMax: 5 },
   bulkImport: { maxEntries: 1000, maxTextLength: 1_000_000 },
+  dataImport: { maxCategories: 5000, maxLinks: 20_000 },
 } as const
