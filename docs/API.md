@@ -28,6 +28,7 @@ LINK=9b2e7a10-4c3d-4e5f-8a6b-7c8d9e0f1a02      # a link id
 | Optional values | Always present in responses as `null`, never left out. |
 | `PATCH` | Partial update. Send only the fields that change. A field that is left out stays as it is; a field sent as `null` is cleared. |
 | Strings | `title`, `url`, `description` and `name` are trimmed. An empty `description` is stored as `null`. |
+| Rich text | A link's `notes` is an HTML fragment. The server sanitizes it before storing; see [Notes](#notes). |
 | Unknown fields | Ignored. |
 | Caching | API responses use `Cache-Control: no-store` and do not support ETag revalidation. |
 
@@ -59,7 +60,7 @@ A folder for links. Categories nest to any depth: a category with a `parentId` i
 
 ### Link
 
-A saved web link.
+A saved web link. A link can act as a *parent* link (a site's home page, say), with related sub-links such as its Careers and About pages kept in `notes`.
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -67,6 +68,7 @@ A saved web link.
 | `title` | string | Required, 1–200 characters. |
 | `url` | string | Required. Must be an absolute `http://` or `https://` URL of at most 2048 characters. No two links can have the same URL. |
 | `description` | string \| null | Up to 2000 characters. Defaults to `null`. |
+| `notes` | string \| null | Rich text notes as a sanitized HTML fragment, up to 20 000 characters. Defaults to `null`. See [Notes](#notes). |
 | `categoryId` | uuid \| null | The category or subcategory the link is filed in. `null` means unsorted (the default). |
 | `rating` | integer \| null | 1–5 stars. `null` means not rated (the default). |
 | `createdAt` | date-time | Read-only. The time the link was added. |
@@ -78,10 +80,26 @@ A saved web link.
   "title": "Cacio e pepe, properly",
   "url": "https://www.seriouseats.com/cacio-e-pepe",
   "description": "The emulsion trick that keeps the cheese from clumping.",
+  "notes": null,
   "categoryId": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e02",
   "rating": 4,
   "createdAt": "2026-11-19T12:45:00.000Z",
   "updatedAt": "2026-11-19T12:45:00.000Z"
+}
+```
+
+#### Notes
+
+`notes` holds rich text from the UI's editor: formatted text, lists and links. On create and update the server sanitizes it against an allowlist, so anything the API returns is safe to render:
+
+- Allowed tags: `p`, `br`, `strong`, `b`, `em`, `i`, `u`, `s`, `code`, `pre`, `blockquote`, `h3`, `h4`, `ul`, `ol`, `li`, `a`, `hr`. Other tags are removed; their text is kept, except for `script`, `style` and similar, which are removed with their contents.
+- The only allowed attribute is `href` on `a`, with an `http`, `https` or `mailto` URL. Any other `href` is dropped. Every link is stored with `target="_blank" rel="noopener noreferrer"`.
+- Notes with no text and no links left after sanitizing (for example `<p></p>`) are stored as `null`. Send `null` to clear them.
+- The 20 000-character limit applies to the sanitized HTML.
+
+```json
+{
+  "notes": "<p>Related pages:</p><ul><li><a href=\"https://www.wonderfull.co/careers\" target=\"_blank\" rel=\"noopener noreferrer\">Careers</a></li><li><a href=\"https://www.wonderfull.co/about\" target=\"_blank\" rel=\"noopener noreferrer\">About</a></li></ul>"
 }
 ```
 
@@ -353,6 +371,7 @@ curl -s $BASE/api/links
       "title": "Motion for React",
       "url": "https://motion.dev/docs/react",
       "description": "Production-ready animation library: layout animations, gestures, exit transitions.",
+      "notes": null,
       "categoryId": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e05",
       "rating": 5,
       "createdAt": "2026-11-20T14:10:00.000Z",
@@ -363,6 +382,7 @@ curl -s $BASE/api/links
       "title": "Designing data-intensive applications, chapter notes",
       "url": "https://dataintensive.net/",
       "description": null,
+      "notes": null,
       "categoryId": null,
       "rating": null,
       "createdAt": "2026-11-12T21:40:00.000Z",
@@ -392,6 +412,7 @@ curl -s $BASE/api/links/9b2e7a10-4c3d-4e5f-8a6b-7c8d9e0f1a02
     "title": "Cacio e pepe, properly",
     "url": "https://www.seriouseats.com/cacio-e-pepe",
     "description": "The emulsion trick that keeps the cheese from clumping.",
+    "notes": null,
     "categoryId": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e02",
     "rating": 4,
     "createdAt": "2026-11-19T12:45:00.000Z",
@@ -413,6 +434,7 @@ After the link is saved, the server starts generating its thumbnail in the backg
 | `title` | yes | Trimmed. Must not be empty and must be at most 200 characters. |
 | `url` | yes | An absolute `http(s)` URL of at most 2048 characters. Must not already be saved. |
 | `description` | no | Up to 2000 characters. Empty or left out means `null`. |
+| `notes` | no | HTML fragment, sanitized (see [Notes](#notes)); at most 20 000 characters afterwards. Empty or left out means `null`. |
 | `categoryId` | no | An existing category id, or `null` / left out for unsorted. |
 | `rating` | no | A whole number from 1 to 5, or `null` / left out for not rated. |
 
@@ -451,6 +473,7 @@ curl -s -X POST $BASE/api/links \
     "title": "Pozole rojo",
     "url": "https://www.mexicoinmykitchen.com/pozole-rojo/",
     "description": "Make the chile sauce a day ahead.",
+    "notes": null,
     "categoryId": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e03",
     "rating": 4,
     "createdAt": "2026-11-20T18:10:00.000Z",
@@ -463,7 +486,7 @@ curl -s -X POST $BASE/api/links \
 
 | Status | Code | When |
 | --- | --- | --- |
-| 400 | `VALIDATION_FAILED` | The title is missing or too long, the URL is invalid or too long, the description is too long, the category doesn't exist, or the rating is not 1–5 or `null`. |
+| 400 | `VALIDATION_FAILED` | The title is missing or too long, the URL is invalid or too long, the description or notes are too long or not text, the category doesn't exist, or the rating is not 1–5 or `null`. |
 | 409 | `DUPLICATE_URL` | A link with this URL is already saved. |
 
 ```json
@@ -546,6 +569,7 @@ curl -s -X PATCH $BASE/api/links/9b2e7a10-4c3d-4e5f-8a6b-7c8d9e0f1a04 \
     "title": "You might not need an effect",
     "url": "https://react.dev/learn/you-might-not-need-an-effect",
     "description": "When to drop useEffect in favour of derived state and event handlers.",
+    "notes": null,
     "categoryId": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e05",
     "rating": 5,
     "createdAt": "2026-11-15T08:05:00.000Z",
@@ -630,6 +654,7 @@ jq -n --rawfile text links.txt --arg cat 6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e02 \
         "title": "link 1",
         "url": "http://www.somewhere.com",
         "description": null,
+        "notes": null,
         "categoryId": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e02",
         "rating": null,
         "createdAt": "2026-11-21T19:20:00.000Z",
@@ -640,6 +665,7 @@ jq -n --rawfile text links.txt --arg cat 6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e02 \
         "title": "some other link",
         "url": "http://www.foo.com",
         "description": "this is a really great site....",
+        "notes": null,
         "categoryId": "6f1d2c4e-8a3b-4c5d-9e7f-1a2b3c4d5e02",
         "rating": null,
         "createdAt": "2026-11-21T19:20:00.010Z",

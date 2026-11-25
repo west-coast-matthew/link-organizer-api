@@ -1,4 +1,4 @@
-status: ready
+status: completed
 
 # 003 — add rich text notes to link definitions
 

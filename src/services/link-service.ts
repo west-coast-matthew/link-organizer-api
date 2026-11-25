@@ -5,10 +5,11 @@ import { hashUrl, LinkEntity } from '../entities/LinkEntity'
 import { ApiError } from '../errors/api-error'
 import { isHttpUrl, isUuid, requireObject } from '../lib/validation'
 import { parseBulkLinks } from '../lib/bulk-import'
+import { sanitizeNotes } from '../lib/notes'
 import { LIMITS, type BulkImportResult, type FieldError, type Rating } from '../types'
 import type { ThumbnailService } from './thumbnail-service'
 
-type LinkFields = Partial<Pick<LinkEntity, 'title' | 'url' | 'description' | 'categoryId' | 'rating'>>
+type LinkFields = Partial<Pick<LinkEntity, 'title' | 'url' | 'description' | 'notes' | 'categoryId' | 'rating'>>
 
 export class LinkService {
   constructor(
@@ -37,6 +38,7 @@ export class LinkService {
         title: clean.title!,
         url: clean.url!,
         description: clean.description ?? null,
+        notes: clean.notes ?? null,
         categoryId: clean.categoryId ?? null,
         rating: clean.rating ?? null,
       })
@@ -139,7 +141,7 @@ export class LinkService {
 
   /** Applies the rules in mock-data/links/{create,update}.json. Returns only the fields that were sent, cleaned. */
   private async validate(em: EntityManager, input: Record<string, unknown>, current: LinkEntity | null): Promise<LinkFields> {
-    const { titleMaxLength, urlMaxLength, descriptionMaxLength, ratingMin, ratingMax } = LIMITS.link
+    const { titleMaxLength, urlMaxLength, descriptionMaxLength, notesMaxLength, ratingMin, ratingMax } = LIMITS.link
     const details: FieldError[] = []
     const clean: LinkFields = {}
     const isCreate = current === null
@@ -167,6 +169,17 @@ export class LinkService {
         if (description && description.length > descriptionMaxLength)
           details.push({ field: 'description', message: `Keep the description under ${descriptionMaxLength} characters.` })
         clean.description = description
+      }
+    }
+
+    if (input.notes !== undefined) {
+      if (input.notes !== null && typeof input.notes !== 'string') {
+        details.push({ field: 'notes', message: 'The notes must be text.' })
+      } else {
+        const notes = input.notes === null ? null : sanitizeNotes(input.notes)
+        if (notes && notes.length > notesMaxLength)
+          details.push({ field: 'notes', message: `Keep the notes under ${notesMaxLength} characters.` })
+        clean.notes = notes
       }
     }
 

@@ -18,7 +18,7 @@ UI can swap its mock service for real `fetch` calls without changing return type
 | GET | `/api/links` | 200 `{ data: LinkItem[], meta: { total } }` — newest first |
 | GET | `/api/links/:id` | 200 `{ data: LinkItem }` |
 | POST | `/api/links` | 201 `{ data: LinkItem }` |
-| PATCH | `/api/links/:id` | 200 `{ data: LinkItem }` |
+| PATCH | `/api/links/:id` | 200 `{ data: LinkItem }` — `LinkItem` includes optional rich text `notes` |
 | DELETE | `/api/links/:id` | 204 |
 | POST | `/api/links/import` | 201/200 `{ data: { created, skipped }, meta }` — bulk import from pasted text into one category |
 | GET | `/api/links/:id/thumbnail` | 200 `image/webp` — generated in the background when the link is created |
@@ -79,6 +79,10 @@ New migrations must also be added to the `migrations` array in `src/data-source.
 
 - Link URLs are unique. Because a 2048-character column is too wide for an InnoDB unique index,
   uniqueness is enforced on `urlHash` (SHA-256 of the URL), which the entity keeps in sync.
+- A link can be a *parent* link with rich text `notes` (sanitized HTML) holding related sub-links,
+  such as a site's Careers and About pages. Notes are sanitized against an allowlist on every
+  create and update (`src/lib/notes.ts`), so stored notes are safe to render; empty notes are `null`.
+  See [docs/API.md](docs/API.md#notes) and spec 003.
 - Ratings are 1–5 stars; `null` means not rated (the default). Send `{ "rating": null }` to clear one.
 - Category names are unique among siblings, case-insensitively; the service checks this.
 - Thumbnails are stored as `<linkId>.webp` in `THUMBNAIL_DIR`. The source is the page's `og:image`, or

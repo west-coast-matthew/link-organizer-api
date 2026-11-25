@@ -21,6 +21,8 @@ export interface LinkItem {
   title: string
   url: string
   description: string | null
+  /** Rich text notes as a sanitized HTML fragment (e.g. related sub-links); null = none. */
+  notes: string | null
   /** Category or subcategory the link lives in; null = unsorted. */
   categoryId: string | null
   /** null = not rated. */
@@ -36,6 +38,7 @@ export interface CreateLinkInput {
   title: string
   url: string
   description?: string | null
+  notes?: string | null
   categoryId?: string | null
   rating?: Rating | null
 }
@@ -107,6 +110,6 @@ export interface ErrorBody {
 
 export const LIMITS = {
   category: { nameMaxLength: 80 },
-  link: { titleMaxLength: 200, urlMaxLength: 2048, descriptionMaxLength: 2000, ratingMin: 1, ratingMax: 5 },
+  link: { titleMaxLength: 200, urlMaxLength: 2048, descriptionMaxLength: 2000, notesMaxLength: 20_000, ratingMin: 1, ratingMax: 5 },
   bulkImport: { maxEntries: 1000, maxTextLength: 1_000_000 },
 } as const
