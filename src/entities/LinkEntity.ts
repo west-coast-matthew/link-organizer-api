@@ -39,6 +39,10 @@ export class LinkEntity {
   @Column({ type: 'text', nullable: true })
   description: string | null
 
+  /** Rich text notes (sanitized HTML), e.g. related sub-links; null = none. */
+  @Column({ type: 'mediumtext', nullable: true })
+  notes: string | null
+
   /** null = unsorted. Set to NULL if the category row disappears without the service moving the link. */
   @Index('IDX_links_categoryId')
   @Column({ type: 'char', length: 36, nullable: true })
@@ -71,6 +75,7 @@ export class LinkEntity {
       title: this.title,
       url: this.url,
       description: this.description,
+      notes: this.notes,
       categoryId: this.categoryId,
       rating: this.rating,
       createdAt: this.createdAt.toISOString(),
